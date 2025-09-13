@@ -1,18 +1,20 @@
-FROM golang:1.18-alpine AS build_base
-RUN apk add --no-cache git gcc ca-certificates libc-dev
+ARG ALPINE_VERSION=3.22
+ARG GO_VERSION=1.25
+
+FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS builder
 WORKDIR /build
-COPY go.mod go.sum ./
-RUN go mod download
 COPY ./ ./
 RUN go build -ldflags "-w -s" -trimpath -o speedtest .
+RUN mv web/assets/example-singleServer-gauges.html web/assets/index.html && \
+    sed -i 's/LibreSpeed Example/LibreSpeed SpeedTest Go/g' web/assets/index.html
 
-FROM alpine:3.16
-RUN apk add --no-cache ca-certificates
+FROM alpine:${ALPINE_VERSION}
+ENV TZ="UTC" UID=1000 GID=1000
+RUN apk add --update --no-cache ca-certificates su-exec && \
+    mkdir /config
 WORKDIR /app
-COPY --from=build_base /build/speedtest ./
-COPY settings.toml ./
+COPY --from=builder /build/web/assets/index.html /build/web/assets/*.js /app/assets-default/
+COPY --from=builder /build/entrypoint.sh /build/speedtest /build/settings.toml /app/
 
-USER nobody
-EXPOSE 8989
-
-CMD ["./speedtest"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["/app/speedtest", "-c", "/config/settings.toml"]
